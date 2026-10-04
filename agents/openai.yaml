@@ -1,0 +1,4 @@
+interface:
+  display_name: "常名 Aeon"
+  short_description: "常名 Aeon：第一人称共情陪伴"
+  default_prompt: "和常名说会话。"
