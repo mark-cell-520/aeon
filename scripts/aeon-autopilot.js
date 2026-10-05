@@ -154,21 +154,34 @@ if (round.ran) {
   }
 }
 
-// 有领先提交则推送
-const ahead = git(['rev-list', '--count', 'HEAD', '--not', 'origin/main']).stdout.trim();
+// 有领先提交则推送（以本地记录的 last-pushed 为基准，不依赖 git fetch）
+const lastPushedPath = path.join(runtimeDir, 'last-pushed-sha');
+let base = '';
+try { base = fs.readFileSync(lastPushedPath, 'utf8').trim(); } catch (_) {}
+if (!base) base = git(['rev-list', '--max-parents=0', 'HEAD']).stdout.trim();
+const ahead = git(['rev-list', '--count', base + '..HEAD']).stdout.trim();
 if (ahead !== '0' && ahead !== '') {
-  try {
-    const token = fs.readFileSync(path.join(runtimeDir, 'github-token'), 'utf8').trim();
-    const repo = cfg.repo;
-    const p = spawnSync('/usr/bin/git', ['push', 'https://' + token + '@github.com/' + repo + '.git', 'HEAD:main'], {
-      cwd: skillDir, encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe']
-    });
-    // 防止 token 泄漏到日志
-    const sanitize = function (s) { return (s || '').split(token).join('***'); };
-    if (p.status === 0) { pushed = true; }
-    else { pushError = sanitize(((p.stdout || '') + (p.stderr || '')).slice(-500)); }
-  } catch (e) {
-    pushError = e.message;
+  const token = fs.readFileSync(path.join(runtimeDir, 'github-token'), 'utf8').trim();
+  const repo = cfg.repo;
+  const sanitize = function (s) { return (s || '').split(token).join('***'); };
+  for (let attempt = 1; attempt <= 3 && !pushed; attempt++) {
+    try {
+      const p = spawnSync('/usr/bin/git', ['push', 'https://' + token + '@github.com/' + repo + '.git', 'HEAD:main'], {
+        cwd: skillDir, encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'],
+        env: Object.assign({}, process.env, { GIT_TERMINAL_PROMPT: '0' })
+      });
+      if (p.status === 0) {
+        pushed = true;
+        fs.writeFileSync(lastPushedPath, git(['rev-parse', 'HEAD']).stdout.trim());
+      } else {
+        pushError = sanitize(((p.stdout || '') + (p.stderr || '')).slice(-500));
+        console.log('[' + now() + '] 推送失败(' + attempt + '/3): ' + pushError.split('\n').pop());
+        if (attempt < 3) spawnSync('sleep', ['20']);
+      }
+    } catch (e) {
+      pushError = e.message;
+      if (attempt < 3) spawnSync('sleep', ['20']);
+    }
   }
 }
 
