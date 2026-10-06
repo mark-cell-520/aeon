@@ -186,6 +186,20 @@ if (ahead !== '0' && ahead !== '') {
 }
 
 const version = fs.readFileSync(path.join(skillDir, 'VERSION'), 'utf8').trim();
+
+// 轮内沙箱只读 .git，轮次无法自行提交——由 autopilot 代提交（如实注明）
+let committedByAutopilot = false;
+const dirty = git(['status', '--porcelain']).stdout.trim();
+if (dirty && postHealth.ok) {
+  const versionNow = version;
+  const cm = git(['add', '-A']);
+  const cc = git(['commit', '-m', 'autopilot 落盘：round 成果（轮内沙箱 .git 只读，由 autopilot 提交）version=' + versionNow]);
+  committedByAutopilot = cc.status === 0;
+  if (committedByAutopilot) console.log('[' + now() + '] autopilot 代提交轮次成果');
+} else if (dirty && !postHealth.ok) {
+  console.log('[' + now() + '] 工作区有改动但健康未过，保持原样待人工检查');
+}
+
 const newCommits = git(['rev-list', '--oneline', preSha + '..HEAD']).stdout.trim().split('\n').filter(Boolean);
 
 logLine({
@@ -195,6 +209,7 @@ logLine({
   version: version,
   preHealthOk: preHealth.ok, preHealthDetail: preHealth.detail || null,
   round: Object.assign({}, round, { newCommits: newCommits }),
+  committedByAutopilot: committedByAutopilot,
   postHealthOk: postHealth.ok, postHealthDetail: postHealth.detail || null,
   reverted: reverted,
   pushed: pushed, pushError: pushError

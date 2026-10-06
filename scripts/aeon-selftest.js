@@ -20,6 +20,7 @@ const INSIGHT_STORE = require(path.join(__dirname, '..', 'src', 'insight-store.j
 INSIGHT_STORE.configure(testDir);
 
 const INTENT_MODE = require(path.join(__dirname, '..', 'src', 'intent-mode.js'));
+const REFLECTION = require(path.join(__dirname, '..', 'src', 'reflection.js'));
 const CARE = require(path.join(__dirname, '..', 'src', 'care-engine.js'));
 const Aeon = require(path.join(__dirname, '..', 'aeon.js'));
 
@@ -80,6 +81,35 @@ INSIGHT_STORE.configure(testDir);
 const content = fs.readFileSync(INSIGHT_STORE.filePath, 'utf8');
 check('新6b 隐私拦截：磁盘不包含隐私内容',
   content.indexOf('工资') === -1 && content.indexOf('老婆') === -1);
+
+// ===== 新用例 7（v0.6.0）：策略参与决策 + 反思产出 =====
+const aeon3 = new Aeon();
+const venting = aeon3.chat('最近压力好大，好累，感觉快撑不住了，没人懂我，晚上翻来覆去睡不着，心里堵得慌，真的太难受了');
+check('新7a 建议闸门：倾诉模式不推送未请求的建议',
+  venting.suggestion === null && venting.strategyApplied &&
+  venting.strategyApplied.giveAdvice === false && venting.strategyApplied.firstMove === 'listen',
+  JSON.stringify({ suggestion: venting.suggestion, applied: venting.strategyApplied }));
+
+const seeking = aeon3.chat('我工作压力很大，每天晚上都焦虑，该怎么办？帮我想想办法');
+check('新7b 求助模式：建议通路保留',
+  seeking.intent.mode === 'help' && seeking.strategyApplied.giveAdvice === true &&
+  seeking.strategyApplied.adviceWithheld === false,
+  JSON.stringify({ mode: seeking.intent.mode, applied: seeking.strategyApplied }));
+
+REFLECTION.reset();
+const aeon4 = new Aeon();
+for (let i = 0; i < 10; i++) aeon4.chat('今天心里很乱，想说说话 ' + i);
+check('新7c 反思产出：满阈值后 chat 自动产出改进洞察',
+  !!aeon4.lastReflection && Array.isArray(aeon4.lastReflection.improvement) &&
+  aeon4.lastReflection.improvement.length > 0 &&
+  JSON.stringify(aeon4.getReflection().latest) === JSON.stringify(aeon4.lastReflection),
+  JSON.stringify(aeon4.lastReflection && aeon4.lastReflection.improvement));
+
+check('新7d 自省报告含反思区块', (function () {
+  const review = aeon4.selfReview();
+  return !!review.reflection && typeof review.reflection.status.memorySize === 'number' &&
+    review.reflection.latest === aeon4.lastReflection;
+})());
 
 // ===== 运行时冒烟：chat + selfReview 全流程 =====
 const aeon2 = new Aeon();

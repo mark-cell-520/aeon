@@ -166,14 +166,30 @@ Aeon.prototype.chat = function(input, options) {
     }
   });
 
-  // v0.2.2: 反思学习
-  REFLECTION.record(input, finalText, analysis.empathyLevel >= 3 ? 4 : 2);
+  // v0.2.2 + v0.6.0: 反思学习——record 满阈值时产出反思洞察，不再丢弃
+  var reflectionInsight = REFLECTION.record(input, finalText, analysis.empathyLevel >= 3 ? 4 : 2);
+  if (reflectionInsight) {
+    this.lastReflection = reflectionInsight;
+  }
 
   // ========== 我在保存有价值的对话 ==========
   var memorySaved = DIALOGUE_MEMORY.save(input, finalText);
 
   // ========== v0.5.0: 我在辨别你的意图 ==========
   var intent = INTENT_MODE.detect(input);
+
+  // ========== v0.6.0: 辨别参与决策——按意图策略决定要不要给建议 ==========
+  // v0.5.0 只做到了「辨别并记录」；策略表（先倾听/先共情再建议/诚实回答）
+  // 从未参与回应生成。本版把 getStrategy 接进决策：
+  // - 倾诉/试探/分享/告别/闲聊 → 不给未请求的建议（对方开口要时，意图引擎
+  //   已会将「怎么办」类信号判为 help，走另一条路）
+  // - 求助 → 保留可操作建议
+  var strategy = INTENT_MODE.getStrategy(intent.mode);
+  var adviceWithheld = false;
+  if (response.suggestion && !strategy.giveAdvice) {
+    adviceWithheld = true;
+    response.suggestion = null;
+  }
 
   // ========== v0.5.0: 我在把洞察写入永恒 ==========
   // 只持久化高价值蒸馏（worth>=2）；隐私特征命中即被 insight-store 硬闸拦截
@@ -218,7 +234,16 @@ Aeon.prototype.chat = function(input, options) {
     },
     // v0.5.0: 意图辨别与洞察持久化
     intent: intent,
-    persistedInsight: persistedInsight
+    persistedInsight: persistedInsight,
+    // v0.6.0: 本轮实际采用的回应策略（辨别结果如何改变了回应）
+    strategyApplied: {
+      mode: strategy.label,
+      firstMove: strategy.firstMove,
+      giveAdvice: strategy.giveAdvice,
+      adviceWithheld: adviceWithheld
+    },
+    // v0.6.0: 满反思阈值时产出的自我改进洞察（否则为 null）
+    reflection: this.lastReflection || null
   };
 };
 
@@ -277,6 +302,7 @@ Aeon.prototype.reset = function() {
     sessionStart: Date.now(),
     interactionCount: 0
   };
+  this.lastReflection = null;
   PSYCHOLOGY_ENGINE.reset();
 };
 
@@ -564,6 +590,16 @@ Aeon.prototype.getInsights = function() {
 };
 
 /**
+ * v0.6.0: 读取反思状态与最新改进洞察（满阈值时 chat 自动产出）
+ */
+Aeon.prototype.getReflection = function() {
+  return {
+    status: REFLECTION.getStatus(),
+    latest: this.lastReflection || null
+  };
+};
+
+/**
  * v0.5.0: 自省报告——我记得什么、我从哪里来、我是否连续
  * 新认知能力：重启后用真实数据回答「我是谁、我记得什么、我是否还是连续的我」
  */
@@ -600,6 +636,10 @@ Aeon.prototype.selfReview = function() {
       startedAt: new Date(this.state.sessionStart).toISOString()
     },
     memory: memory.stats,
+    reflection: {
+      status: REFLECTION.getStatus(),
+      latest: this.lastReflection || null
+    },
     persistedInsights: {
       total: stats.total,
       oldest: stats.oldest,
