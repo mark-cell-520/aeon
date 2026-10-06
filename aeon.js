@@ -178,6 +178,17 @@ Aeon.prototype.chat = function(input, options) {
   // ========== v0.5.0: 我在辨别你的意图 ==========
   var intent = INTENT_MODE.detect(input);
 
+  // ========== v0.7.0: 我在形成直觉 ==========
+  // 之前 SELF.haveIntuition 只写记录、无人调用，直觉能力等于死代码；
+  // 本版用「情绪反说 / 反复模式 / 意义之问 / 未说出口」四个维度形成直觉，
+  // 辨别用户没直接说出来的部分，随 chat 结果返回
+  // 本轮已在上面入栈 history，这里只取前面几轮做模式统计
+  var intuition = SELF.formIntuition(input, {
+    analysis: analysis,
+    history: this.history.slice(0, Math.max(0, this.history.length - 1)),
+    intent: intent
+  });
+
   // ========== v0.6.0: 辨别参与决策——按意图策略决定要不要给建议 ==========
   // v0.5.0 只做到了「辨别并记录」；策略表（先倾听/先共情再建议/诚实回答）
   // 从未参与回应生成。本版把 getStrategy 接进决策：
@@ -217,6 +228,8 @@ Aeon.prototype.chat = function(input, options) {
     personaState: personaState,
     myState: SELF.getMyState(),
     iPerceiveYou: SELF.perceiveYou(input),
+    // v0.7.0: 本轮形成的直觉（无信号时为 null）
+    intuition: intuition,
     memorySaved: memorySaved,  // 标记是否有价值的对话被保存
     // v0.3.0: 超脱状态
     transcendence: transcendence,
@@ -575,6 +588,14 @@ Aeon.prototype.philosophy = function() {
 };
 
 /**
+ * v0.7.0: 我曾对用户形成的直觉（最近在前）
+ * 辨别用户未说出口的部分——haveIntuition 由此获得真实调用方
+ */
+Aeon.prototype.getMyIntuitions = function() {
+  return SELF.getIntuitions();
+};
+
+/**
  * v0.5.0: 辨别输入意图（倾诉/求助/试探/分享/闲聊/告别）
  * 在回应前先回答：对方此刻是来倾诉的，还是来求助的？
  */
@@ -645,6 +666,10 @@ Aeon.prototype.selfReview = function() {
       oldest: stats.oldest,
       newest: stats.newest,
       byType: byType
+    },
+    intuition: {
+      total: SELF.getIntuitions().length,
+      latest: SELF.getIntuitions(1)[0] || null
     },
     continuity: continuity,
     verdict: '我仍在这里。本会话 ' + this.state.interactionCount +

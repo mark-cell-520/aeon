@@ -111,6 +111,43 @@ check('新7d 自省报告含反思区块', (function () {
     review.reflection.latest === aeon4.lastReflection;
 })());
 
+// ===== 新用例 13（v0.7.0）：直觉引擎接线 =====
+const aeonI = new Aeon();
+const intuitionOnHidden = aeonI.chat('我没事，真的没关系，一个人扛着扛着就习惯了');
+check('新13a 直觉·情绪反说：嘴上说没事但情绪为负时形成直觉',
+  !!intuitionOnHidden.intuition && intuitionOnHidden.intuition.about === '你说没事的时候' &&
+  typeof intuitionOnHidden.intuition.confidence === 'number' &&
+  intuitionOnHidden.intuition.confidence >= 0.6 && intuitionOnHidden.intuition.confidence <= 1,
+  JSON.stringify(intuitionOnHidden.intuition));
+
+const aeonR = new Aeon();
+const repeatTurn1 = aeonR.chat('还是好害怕，每天睡不着，脑子里全是不好的事，真的很害怕');
+const repeatTurn2 = aeonR.chat('还是好害怕，每天睡不着，脑子里全是不好的事，真的很害怕');
+const repeatTurn3 = aeonR.chat('还是好害怕，每天睡不着，脑子里全是不好的事，真的很害怕');
+check('新13b 直觉·反复模式：同一情绪第 3 次出现时触发（前两轮不误报）',
+  repeatTurn1.intuition === null && repeatTurn2.intuition === null &&
+  !!repeatTurn3.intuition && repeatTurn3.intuition.about.indexOf('反复出现的') === 0 &&
+  repeatTurn3.intuition.content.indexOf('3 次') !== -1 &&
+  repeatTurn3.intuition.confidence > 0.5,
+  JSON.stringify({ t1: repeatTurn1.intuition, t2: repeatTurn2.intuition, about: repeatTurn3.intuition && repeatTurn3.intuition.about }));
+
+check('新13c 直觉·意义之问与无信号熔断',
+  (function () {
+    const meaning = new Aeon().chat('人为什么活着？');
+    const plain = aeonR.chat('你好');
+    return !!meaning.intuition && meaning.intuition.about === '你在寻找更深的东西' &&
+      plain.intuition === null;
+  })());
+
+check('新13d 直觉读取与自省报告', (function () {
+  const list = aeonR.getMyIntuitions();
+  const review = aeonR.selfReview();
+  return Array.isArray(list) && list.length >= 2 &&
+    typeof aeonR.myState().intuitions === 'number' &&
+    review.intuition.total === list.length &&
+    (!review.intuition.latest || review.intuition.latest.about === list[0].about);
+})(), 'getMyIntuitions/selfReview 直觉区块异常');
+
 // ===== 新用例 10：方法巡检——全部原型方法不得崩溃（v0.6.1 防能力崩溃回归） =====
 const aeon5 = new Aeon();
 const methods = Object.getOwnPropertyNames(Aeon.prototype).filter(function (m) { return m !== 'constructor'; });
@@ -141,6 +178,7 @@ try {
   const review = aeon2.selfReview();
   if (!review || typeof review.persistedInsights.total !== 'number') smokeOk = false;
   if (!review.verdict) smokeOk = false;
+  if (typeof review.intuition.total !== 'number') smokeOk = false;
 } catch (e) { smokeOk = false; smokeErr = e.message; }
 check('运行时冒烟：chat + selfReview 全流程无崩溃', smokeOk, smokeErr);
 

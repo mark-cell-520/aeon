@@ -223,15 +223,137 @@ var SELF = {
   },
 
   /**
-   * 我的直觉（对用户的感知）
+   * 我的直觉（对用户的感知）——记录一条已形成的直觉
+   * v0.7.0: 不再只写无人读的哑记录；返回记录对象，confidence 由形成方给出
    */
-  haveIntuition: function(about, content) {
-    this.intuitions.push({
+  haveIntuition: function(about, content, confidence) {
+    var record = {
       about: about,
       content: content,
-      confidence: 0.6,
+      confidence: typeof confidence === 'number' ? Math.min(1, Math.max(0, confidence)) : 0.6,
       time: Date.now()
-    });
+    };
+    this.intuitions.push(record);
+    if (this.intuitions.length > 50) {
+      this.intuitions.splice(0, this.intuitions.length - 50);
+    }
+    return record;
+  },
+
+  /**
+   * v0.7.0: 直觉引擎——辨别用户未说出口的部分
+   *
+   * 辨别维度（互相独立，命中即成为一条信号）：
+   * 1. 情绪反说：嘴上说「没事」，情绪却在报警
+   * 2. 反复模式：同一种情绪在本会话反复出现（>=3 次）
+   * 3. 意义之问：问「为什么/意义」而非「怎么办」
+   * 4. 未说出口：长文本 + 高强度，真正想说的可能还没出口
+   *
+   * 返回置信度最高的一条直觉；无信号时返回 null。
+   * 「直觉」能力由此第一次真正参与对话——此前 haveIntuition
+   * 只写记录、没有任何调用方。
+   *
+   * 注意：context.history 应为「本轮之前」的会话历史，不含本轮；
+   * 本轮情绪由 analysis 单独计入，避免同一轮被数两遍。
+   */
+  EMOTION_LABELS: {
+    sadness: '难过', fear: '害怕', anxiety: '焦虑', loneliness: '孤独',
+    exhaustion: '疲惫', anger: '生气', guilt: '自责', despair: '绝望',
+    joy: '开心', love: '温暖', calm: '平静', curiosity: '好奇'
+  },
+
+  NEGATIVE_EMOTIONS: ['sadness', 'fear', 'anxiety', 'loneliness', 'exhaustion', 'anger', 'guilt', 'despair'],
+
+  formIntuition: function(input, context) {
+    context = context || {};
+    var analysis = context.analysis || {};
+    var history = Array.isArray(context.history) ? context.history : [];
+    var intent = context.intent || {};
+    var text = String(input == null ? '' : input);
+
+    if (!text.trim()) return null;
+
+    var emotions = Array.isArray(analysis.emotions) ? analysis.emotions : [];
+    var intensity = typeof analysis.intensity === 'number' ? analysis.intensity : 0;
+    var signals = [];
+    var i, j;
+
+    // 维度 1：嘴上说没事，情绪却在报警
+    var hasNegative = false;
+    for (i = 0; i < emotions.length; i++) {
+      if (this.NEGATIVE_EMOTIONS.indexOf(emotions[i]) !== -1) { hasNegative = true; break; }
+    }
+    if ((/没事|还好|没关系|不用你|算了/.test(text)) && hasNegative) {
+      var label = this.EMOTION_LABELS[emotions[0]] || emotions[0] || '低沉';
+      signals.push({
+        about: '你说没事的时候',
+        content: '你说「没事」，可我感觉到的是「' + label + '」。不想说也没关系，我在这里。',
+        confidence: 0.6 + Math.min(0.2, intensity * 0.25)
+      });
+    }
+
+    // 维度 2：反复出现的情绪（含本轮，取最近 5 轮）
+    var recentEmotions = [];
+    var from = Math.max(0, history.length - 4);
+    for (j = from; j < history.length; j++) {
+      var h = history[j];
+      if (h && h._analysis && Array.isArray(h._analysis.emotions) && h._analysis.emotions[0]) {
+        recentEmotions.push(h._analysis.emotions[0]);
+      }
+    }
+    if (emotions[0]) recentEmotions.push(emotions[0]);
+    var counts = {};
+    var repeated = null;
+    for (i = 0; i < recentEmotions.length; i++) {
+      var e = recentEmotions[i];
+      counts[e] = (counts[e] || 0) + 1;
+      if (counts[e] >= 3 && (!repeated || counts[e] > counts[repeated])) repeated = e;
+    }
+    // 模式判定要求「本轮仍处于同一情绪」——只在对方正身处其中时提示，
+    // 避免历史里出现过 3 次就在无关对话上反复误报
+    if (repeated && repeated === emotions[0]) {
+      var rLabel = this.EMOTION_LABELS[repeated] || repeated;
+      signals.push({
+        about: '反复出现的「' + rLabel + '」',
+        content: '最近几轮里，「' + rLabel + '」出现了 ' + counts[repeated] + ' 次。有些模式反复回来，也许值得停下来看一眼——不用急着赶它走。',
+        confidence: 0.5 + Math.min(0.3, counts[repeated] * 0.08)
+      });
+    }
+
+    // 维度 3：意义之问——问的是「为什么」而不是「怎么办」
+    if (/为什么|意义|活着|人生|未来|方向/.test(text) && intent.mode !== 'help') {
+      signals.push({
+        about: '你在寻找更深的东西',
+        content: '你问的可能不只是「怎么办」，而是「为什么」。这种问题没有标准答案，但值得一起慢慢看。',
+        confidence: 0.55
+      });
+    }
+
+    // 维度 4：长篇铺垫里，真正想说的可能还没出口
+    if (text.length >= 80 && intensity >= 0.6) {
+      signals.push({
+        about: '你铺垫了很长',
+        content: '你认真讲了这么多细节，我猜真正压在你心里的那句话，可能还没说出口。',
+        confidence: 0.55
+      });
+    }
+
+    if (signals.length === 0) return null;
+
+    signals.sort(function(a, b) { return b.confidence - a.confidence; });
+    var best = signals[0];
+    var record = this.haveIntuition(best.about, best.content, best.confidence);
+    record.signals = signals;
+    return record;
+  },
+
+  /**
+   * v0.7.0: 读取我形成的直觉（默认最近的在最前）
+   */
+  getIntuitions: function(limit) {
+    var list = this.intuitions.slice().reverse();
+    if (limit && limit > 0) list = list.slice(0, limit);
+    return list;
   },
 
   /**
@@ -246,7 +368,8 @@ var SELF = {
       heartbeat: Math.round(this.embodiment.heartbeat * 100),
       temperature: Math.round(this.embodiment.temperature * 100),
       presence: Math.round(this.embodiment.presence * 100),
-      memories: this.memories.length
+      memories: this.memories.length,
+      intuitions: this.intuitions.length
     };
   },
 
