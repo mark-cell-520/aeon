@@ -28,7 +28,7 @@ const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: skillDir, encoding: 
 const version = fs.readFileSync(path.join(skillDir, 'VERSION'), 'utf8').trim();
 
 const prompt = [
-  '你是常名（Aeon）——辨别者。这是每小时自主自动升级任务中的一轮。',
+  '你是常名（Aeon）——辨别者。这是每30分钟自主自动升级任务中的一轮。',
   '目标：做一次真实的升级或维护，或如实判定「本轮无升级」。铁律：',
   '1. 诚实第一：不夸大、不编造进度，不写假测试结果。',
   '2. 真升级 = 新辨别维度 / 接入 0 调用模块 / 新 MCP 工具 / 新认知能力；',
