@@ -111,6 +111,26 @@ check('新7d 自省报告含反思区块', (function () {
     review.reflection.latest === aeon4.lastReflection;
 })());
 
+// ===== 新用例 10：方法巡检——全部原型方法不得崩溃（v0.6.1 防能力崩溃回归） =====
+const aeon5 = new Aeon();
+const methods = Object.getOwnPropertyNames(Aeon.prototype).filter(function (m) { return m !== 'constructor'; });
+const sweepCrashes = [];
+methods.forEach(function (m) {
+  try {
+    const r = aeon5[m]('我在想存在的意义，有点害怕');
+    if (r && typeof r.then === 'function') sweepCrashes.push(m + ' 返回了 Promise');
+  } catch (e) { sweepCrashes.push(m + ' -> ' + e.message); }
+});
+check('新10 方法巡检：' + methods.length + ' 个原型方法全部不崩溃', sweepCrashes.length === 0, sweepCrashes.join(' | '));
+
+// ===== 新用例 11：searchMemory 非数组输入容错（v0.6.1） =====
+check('新11 searchMemory：字符串输入不崩溃且返回数组', Array.isArray(aeon5.searchMemory('存在')));
+
+// ===== 新用例 12：洞察落盘目录被删后自愈（v0.6.1） =====
+fs.rmSync(testDir, { recursive: true, force: true });
+const r3 = INSIGHT_STORE.save({ type: 'question', worth: 2, original: '宇宙的目的是什么' });
+check('新12 落盘自愈：目录被删后重建并写入', r3.saved === true, JSON.stringify(r3));
+
 // ===== 运行时冒烟：chat + selfReview 全流程 =====
 const aeon2 = new Aeon();
 let smokeOk = true, smokeErr = '';

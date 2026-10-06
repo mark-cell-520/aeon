@@ -203,6 +203,11 @@ var DIALOGUE_MEMORY = {
     var results = [];
     var self = this;
 
+    // v0.6.1: 输入容错——传字符串/空值/非数组时不崩溃
+    if (!keywords) return results;
+    if (typeof keywords === 'string') keywords = [keywords];
+    if (!Array.isArray(keywords)) return results;
+
     keywords.forEach(function(kw) {
       // 搜索有价值的对话
       self.valuableConversations.forEach(function(conv) {

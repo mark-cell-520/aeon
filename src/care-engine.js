@@ -623,6 +623,45 @@ var CARE = {
     return responses.join(' ');
   },
 
+  // ========== 自然一句话回应 ==========
+  // v0.6.1 补齐：generateFlow 一直调用本函数但它从未被定义（能力崩溃修复）
+  generateNatural: function(input, history) {
+    var anxiety = this.detectAnxiety(input, history || []);
+    var stageInfo = this.detectStage(input);
+    var source = null;
+
+    // 有焦虑信号 → 优先安慰文本
+    if (anxiety.intensity >= 0.1) {
+      var comfort = this.getComfortResponse(anxiety);
+      if (comfort) source = comfort.text;
+    }
+    // 有 Kübler-Ross 阶段信号 → 阶段文本
+    if (!source && stageInfo.detected) {
+      var stageText = this.getStageText(input);
+      if (stageText) source = stageText.text;
+    }
+    // 兜底 → 持续陪伴对话
+    if (!source) source = this.generateConversation(input, history);
+    if (!source) source = '我在这里。你慢慢说，我在听。';
+
+    return this.adjustByIntensity(source, anxiety.intensity > 0 ? anxiety.intensity : 0.5);
+  },
+
+  // ========== 纯安慰文本 ==========
+  // v0.6.1 补齐：Aeon.prototype.generateComfortText 一直委托本函数但它从未被定义
+  generateComfortText: function(input, history) {
+    var anxiety = this.detectAnxiety(input, history || []);
+    var comfort = this.getComfortResponse(anxiety);
+    if (comfort) return comfort.text;
+
+    var stageInfo = this.detectStage(input);
+    if (stageInfo.detected) {
+      var stageText = this.getStageText(input);
+      if (stageText) return stageText.text;
+    }
+    return '我在这里，陪着你。';
+  },
+
   // ========== 针对胆囊/手术的可操作建议 ==========
   getPracticalAdvice: function(input, history, anxiety) {
     // "术后难受"已经在understandContent里处理了，这里不重复

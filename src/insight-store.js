@@ -129,7 +129,14 @@ var INSIGHT_STORE = {
     if (!insight.stored) insight.stored = new Date().toISOString();
 
     // 追加写入（append-only，历史不被覆盖）
-    fs.appendFileSync(this.filePath, JSON.stringify(insight) + '\n');
+    // v0.6.1: 目录被清掉时先重建；IO 失败降级为只留内存，绝不拖垮 chat
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.appendFileSync(this.filePath, JSON.stringify(insight) + '\n');
+    } catch (e) {
+      this.insights.push(insight);
+      return { saved: false, reason: 'io_error', detail: e.message, memoryOnly: true, total: this.insights.length };
+    }
     this.insights.push(insight);
     this.touchActivity();
 
